@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+"""
+CLAUDE-POWERED CHART ANALYZER
+Automatically captures your trading screen, sends to Claude API, gets instant analysis
+
+This is NEXT LEVEL - Claude literally watches your charts and tells you what to do
+"""
+
+import anthropic
+import base64
+import time
+from PIL import ImageGrab, Image
+import io
+from datetime import datetime
+import subprocess
+import os
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+CONFIG = {
+    # Anthropic API key - Get from: https://console.anthropic.com
+    'anthropic_api_key': 'YOUR_API_KEY_HERE',
+    
+    # Screenshot settings
+    'capture_interval': 60,  # Capture every 60 seconds
+    'screen_region': None,  # None = full screen, or (x1, y1, x2, y2)
+    
+    # Analysis settings
+    'auto_analyze': True,  # Auto-send to Claude
+    'save_screenshots': False,  # Save images to disk
+    'screenshot_dir': './screenshots',
+    
+    # What to ask Claude
+    'analysis_prompt': """
+You are a professional gold futures trader analyzing a 5-minute chart.
+
+CURRENT CONTEXT:
+- You have learned all key levels: Round numbers ($4,250, $4,200, $4,150, $4,100, etc.)
+- Support zones: $4,200-4,210 (critical), $4,100-4,125 (golden), $4,000-4,025 (ultimate)
+- Resistance zones: $4,245-4,250 (current high), $4,280-4,300 (next)
+- Pattern recognition: Rejection wicks, volume spikes, breakouts, liquidity grabs
+
+ANALYZE THIS CHART:
+
+1. Current price and recent candle patterns (last 2-3 candles)
+2. Is price at or near a key level (round number, support, resistance)?
+3. What pattern do you see (rejection, breakout, consolidation)?
+4. Volume behavior (spike, normal, declining)?
+
+Then give me ONE OF THREE RESPONSES:
+
+✅ ENTER [LONG/SHORT]: [Entry price] | Stop: [price] | Target: [price] | Why: [1 sentence]
+
+⏳ WAIT: [What you're waiting for]
+
+❌ NO TRADE: [Why not]
+
+Be direct. Give me the trade or tell me to wait. No long explanations.
+""",
+    
+    # Alert methods
+    'console_output': True,
+    'desktop_notification': True,
+    'telegram_bot_token': '',  # Optional
+    'telegram_chat_id': '',     # Optional
+}
+
+# =============================================================================
+# CLAUDE API CLIENT
+# =============================================================================
+
+class ClaudeAnalyzer:
+    """Uses Claude API to analyze chart screenshots"""
+    
+    def __init__(self):
+        self.client = anthropic.Anthropic(
+            api_key=CONFIG['anthropic_api_key']
+        )
+        
+    def analyze_chart(self, image_path: str = None, image_bytes: bytes = None) -> str:
+        """Send chart image to Claude and get trading analysis"""
+        
+        try:
+            # Convert image to base64
+            if image_path:
+                with open(image_path, 'rb') as f:
+                    image_data = base64.standard_b64encode(f.read()).decode('utf-8')
+            elif image_bytes:
+                image_data = base64.standard_b64encode(image_bytes).decode('utf-8')
+            else:
+                return "Error: No image provided"
+            
+            # Detect media type (png or jpg)
+            media_type = "image/png" if image_bytes else "image/png"
+            
+            # Create message with image
+            message = self.client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1000,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": image_data,
+                                },
+                            },
+                            {
+                                "type": "text",
+                                "text": CONFIG['analysis_prompt']
+                            }
+                        ],
+                    }
+                ],
+            )
+            
+            # Extract response
+            response = message.content[0].text
+            return response
+            
+        except Exception as e:
+            return f"Error analyzing chart: {e}"
+
+# =============================================================================
+# SCREEN CAPTURE
+# =============================================================================
+
+class ScreenCapture:
+    """Captures screenshots of trading terminal"""
+    
+    def __init__(self):
+        if CONFIG['save_screenshots']:
+            os.makedirs(CONFIG['screenshot_dir'], exist_ok=True)
+    
+    def capture(self) -> bytes:
+        """Capture screenshot and return as bytes"""
+        
+        try:
+            # Capture screen
+            if CONFIG['screen_region']:
+                screenshot = ImageGrab.grab(bbox=CONFIG['screen_region'])
+            else:
+                screenshot = ImageGrab.grab()
+            
+            # Convert to bytes
+            img_byte_arr = io.BytesIO()
+            screenshot.save(img_byte_arr, format='PNG')
+            img_bytes = img_byte_arr.getvalue()
+            
+            # Optionally save to disk
+            if CONFIG['save_screenshots']:
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f"{CONFIG['screenshot_dir']}/chart_{timestamp}.png"
+                screenshot.save(filename)
+            
+            return img_bytes
+            
+        except Exception as e:
+            print(f"Error capturing screen: {e}")
+            return None
+
+# =============================================================================
+# ALERT SYSTEM
+# =============================================================================
+
+class AlertSystem:
+    """Send alerts via various methods"""
+    
+    @staticmethod
+    def send_alert(message: str):
+        """Send alert via configured methods"""
+        
+        if CONFIG['console_output']:
+            AlertSystem._print_alert(message)
+        
+        if CONFIG['desktop_notification']:
+            AlertSystem._desktop_alert(message)
+        
+        if CONFIG['telegram_bot_token']:
+            AlertSystem._telegram_alert(message)
+    
+    @staticmethod
+    def _print_alert(message: str):
+        """Print to console"""
+        print("\n" + "="*80)
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] CLAUDE ANALYSIS")
+        print("="*80)
+        print(message)
+        print("="*80 + "\n")
+    
+    @staticmethod
+    def _desktop_alert(message: str):
+        """Desktop notification"""
+        try:
+            # Extract first line for title
+            title = message.split('\n')[0][:50]
+            body = message[:200]
+            
+            # macOS
+            try:
+                subprocess.run([
+                    'osascript', '-e',
+                    f'display notification "{body}" with title "{title}"'
+                ], check=False)
+            except:
+                pass
+            
+            # Linux
+            try:
+                subprocess.run(['notify-send', title, body], check=False)
+            except:
+                pass
+            
+        except Exception as e:
+            pass
+    
+    @staticmethod
+    def _telegram_alert(message: str):
+        """Send via Telegram"""
+        try:
+            import requests
+            url = f"https://api.telegram.org/bot{CONFIG['telegram_bot_token']}/sendMessage"
+            requests.post(url, json={
+                'chat_id': CONFIG['telegram_chat_id'],
+                'text': message,
+                'parse_mode': 'Markdown'
+            }, timeout=5)
+        except:
+            pass
+
+# =============================================================================
+# MAIN AGENT
+# =============================================================================
+
+class TradingAgent:
+    """Main agent that captures and analyzes"""
+    
+    def __init__(self):
+        self.claude = ClaudeAnalyzer()
+        self.capture = ScreenCapture()
+        self.alerts = AlertSystem()
+        
+    def run(self):
+        """Main loop"""
+        
+        print("="*80)
+        print("CLAUDE-POWERED CHART ANALYZER")
+        print("="*80)
+        print(f"Capture Interval: {CONFIG['capture_interval']} seconds")
+        print(f"Auto-Analyze: {CONFIG['auto_analyze']}")
+        print("="*80)
+        print("Watching your charts... Press Ctrl+C to stop\n")
+        
+        try:
+            while True:
+                # Capture screen
+                img_bytes = self.capture.capture()
+                
+                if img_bytes and CONFIG['auto_analyze']:
+                    # Analyze with Claude
+                    analysis = self.claude.analyze_chart(image_bytes=img_bytes)
+                    
+                    # Send alert
+                    self.alerts.send_alert(analysis)
+                
+                # Wait for next interval
+                time.sleep(CONFIG['capture_interval'])
+                
+        except KeyboardInterrupt:
+            print("\n\nAgent stopped by user")
+            print("="*80)
+
+# =============================================================================
+# ALTERNATIVE: MANUAL ANALYSIS MODE
+# =============================================================================
+
+def analyze_single_chart(image_path: str):
+    """Analyze a single chart image (manual mode)"""
+    
+    print(f"Analyzing: {image_path}")
+    
+    claude = ClaudeAnalyzer()
+    analysis = claude.analyze_chart(image_path=image_path)
+    
+    print("\n" + "="*80)
+    print("CLAUDE ANALYSIS")
+    print("="*80)
+    print(analysis)
+    print("="*80 + "\n")
+
+# =============================================================================
+# COMMAND LINE INTERFACE
+# =============================================================================
+
+def main():
+    """Main entry point"""
+    
+    import sys
+    
+    if len(sys.argv) > 1:
+        # Manual mode - analyze specific image
+        image_path = sys.argv[1]
+        analyze_single_chart(image_path)
+    else:
+        # Auto mode - continuous monitoring
+        agent = TradingAgent()
+        agent.run()
+
+if __name__ == "__main__":
+    main()
