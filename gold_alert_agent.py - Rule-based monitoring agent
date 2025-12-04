@@ -1,0 +1,566 @@
+#!/usr/bin/env python3
+"""
+GOLD FUTURES REAL-TIME ALERT AGENT
+Monitors GC futures and alerts on high-probability setups
+
+Features:
+- Round number detection
+- Support/resistance zone monitoring
+- Volume spike detection
+- Pattern recognition (rejections, breakouts)
+- Multiple alert methods (email, SMS, Telegram, desktop)
+"""
+
+import requests
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import time
+import json
+from typing import Dict, List, Tuple, Optional
+
+# =============================================================================
+# CONFIGURATION - EDIT THESE
+# =============================================================================
+
+CONFIG = {
+    # Trading parameters
+    'symbol': 'GC',  # Gold futures
+    'timeframe': '5m',  # 5-minute bars
+    'check_interval': 60,  # Check every 60 seconds
+    
+    # Key levels (update these daily)
+    'resistance_zones': [
+        {'name': 'R1', 'low': 4245, 'high': 4250, 'priority': 5},
+        {'name': 'R2', 'low': 4280, 'high': 4300, 'priority': 4},
+    ],
+    'support_zones': [
+        {'name': 'S1', 'low': 4220, 'high': 4230, 'priority': 3},
+        {'name': 'S2', 'low': 4200, 'high': 4210, 'priority': 5},
+        {'name': 'S3', 'low': 4100, 'high': 4125, 'priority': 5},
+        {'name': 'S4', 'low': 4000, 'high': 4025, 'priority': 5},
+    ],
+    
+    # Round numbers to watch
+    'round_numbers': [4300, 4250, 4200, 4150, 4100, 4050, 4000],
+    
+    # Alert thresholds
+    'volume_spike_multiplier': 2.0,  # Alert if volume 2x average
+    'wick_size_threshold': 10,  # Alert if wick > $10
+    'rejection_threshold': 5,  # Price must reject by $5 from level
+    
+    # Alert methods (set to True to enable)
+    'alerts': {
+        'console': True,  # Print to screen
+        'desktop': True,  # Desktop notification
+        'telegram': False,  # Telegram bot
+        'email': False,  # Email alerts
+        'webhook': False,  # Custom webhook
+    },
+    
+    # Telegram settings (if enabled)
+    'telegram_bot_token': 'YOUR_BOT_TOKEN_HERE',
+    'telegram_chat_id': 'YOUR_CHAT_ID_HERE',
+    
+    # Email settings (if enabled)
+    'email_from': 'your_email@gmail.com',
+    'email_to': 'your_email@gmail.com',
+    'email_password': 'your_app_password',
+    
+    # Webhook URL (if enabled)
+    'webhook_url': 'https://your-webhook-url.com/alert',
+    
+    # Trading hours (ET, 24-hour format)
+    'trading_hours': {
+        'start': 18,  # 6 PM ET (Sunday open)
+        'end': 17,    # 5 PM ET (Friday close)
+    },
+    
+    # Best trading times (ET)
+    'best_times': [
+        {'name': 'London Open', 'start': 3, 'end': 5},
+        {'name': 'NY Open', 'start': 8, 'end': 10},
+        {'name': 'Overlap', 'start': 8, 'end': 12},
+    ],
+}
+
+# =============================================================================
+# DATA FEED - REPLACE WITH YOUR ACTUAL DATA SOURCE
+# =============================================================================
+
+class DataFeed:
+    """
+    Data feed for real-time gold futures prices.
+    
+    REPLACE THIS with your actual data provider:
+    - Interactive Brokers API
+    - TD Ameritrade API
+    - Alpha Vantage
+    - Polygon.io
+    - TradingView webhook
+    - Your broker's API
+    """
+    
+    def __init__(self):
+        self.base_url = "https://api.example.com"  # Replace with actual API
+        self.api_key = "YOUR_API_KEY"  # Replace with actual key
+        
+    def get_current_price(self) -> Optional[Dict]:
+        """Get current price data"""
+        try:
+            # EXAMPLE - Replace with actual API call
+            # response = requests.get(f"{self.base_url}/quote/{CONFIG['symbol']}")
+            # data = response.json()
+            
+            # For testing, return mock data
+            # In production, replace this with actual API response
+            mock_data = {
+                'symbol': 'GC',
+                'price': 4247.50,
+                'bid': 4247.00,
+                'ask': 4248.00,
+                'high': 4252.00,
+                'low': 4240.00,
+                'volume': 1500,
+                'timestamp': datetime.now()
+            }
+            return mock_data
+            
+        except Exception as e:
+            print(f"Error fetching price: {e}")
+            return None
+    
+    def get_recent_bars(self, count: int = 20) -> Optional[pd.DataFrame]:
+        """Get recent 5-minute bars"""
+        try:
+            # EXAMPLE - Replace with actual API call
+            # response = requests.get(
+            #     f"{self.base_url}/bars/{CONFIG['symbol']}",
+            #     params={'timeframe': CONFIG['timeframe'], 'limit': count}
+            # )
+            # data = response.json()
+            # df = pd.DataFrame(data['bars'])
+            
+            # For testing, return mock data
+            # In production, replace with actual API
+            dates = pd.date_range(end=datetime.now(), periods=count, freq='5min')
+            df = pd.DataFrame({
+                'timestamp': dates,
+                'open': np.random.uniform(4240, 4250, count),
+                'high': np.random.uniform(4245, 4255, count),
+                'low': np.random.uniform(4235, 4245, count),
+                'close': np.random.uniform(4240, 4250, count),
+                'volume': np.random.randint(500, 2000, count),
+            })
+            return df
+            
+        except Exception as e:
+            print(f"Error fetching bars: {e}")
+            return None
+
+# =============================================================================
+# ALERT SYSTEM
+# =============================================================================
+
+class AlertSystem:
+    """Handles multiple alert methods"""
+    
+    @staticmethod
+    def send_alert(message: str, priority: int = 3):
+        """Send alert via configured methods"""
+        
+        # Console alert
+        if CONFIG['alerts']['console']:
+            AlertSystem._console_alert(message, priority)
+        
+        # Desktop notification
+        if CONFIG['alerts']['desktop']:
+            AlertSystem._desktop_alert(message, priority)
+        
+        # Telegram
+        if CONFIG['alerts']['telegram']:
+            AlertSystem._telegram_alert(message)
+        
+        # Email
+        if CONFIG['alerts']['email']:
+            AlertSystem._email_alert(message)
+        
+        # Webhook
+        if CONFIG['alerts']['webhook']:
+            AlertSystem._webhook_alert(message)
+    
+    @staticmethod
+    def _console_alert(message: str, priority: int):
+        """Print to console with formatting"""
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        priority_emoji = '🔥' * priority
+        print(f"\n{'='*80}")
+        print(f"{priority_emoji} [{timestamp}] ALERT {priority_emoji}")
+        print(f"{message}")
+        print(f"{'='*80}\n")
+    
+    @staticmethod
+    def _desktop_alert(message: str, priority: int):
+        """Send desktop notification (macOS/Linux/Windows)"""
+        try:
+            import subprocess
+            title = f"Gold Alert - Priority {priority}"
+            
+            # macOS
+            try:
+                subprocess.run([
+                    'osascript', '-e',
+                    f'display notification "{message}" with title "{title}"'
+                ], check=False)
+            except:
+                pass
+            
+            # Linux (requires notify-send)
+            try:
+                subprocess.run(['notify-send', title, message], check=False)
+            except:
+                pass
+            
+            # Windows (requires win10toast)
+            try:
+                from win10toast import ToastNotifier
+                toaster = ToastNotifier()
+                toaster.show_toast(title, message, duration=10)
+            except:
+                pass
+                
+        except Exception as e:
+            print(f"Desktop notification failed: {e}")
+    
+    @staticmethod
+    def _telegram_alert(message: str):
+        """Send Telegram message"""
+        try:
+            bot_token = CONFIG['telegram_bot_token']
+            chat_id = CONFIG['telegram_chat_id']
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            
+            payload = {
+                'chat_id': chat_id,
+                'text': message,
+                'parse_mode': 'Markdown'
+            }
+            
+            requests.post(url, json=payload, timeout=5)
+        except Exception as e:
+            print(f"Telegram alert failed: {e}")
+    
+    @staticmethod
+    def _email_alert(message: str):
+        """Send email alert"""
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            
+            msg = MIMEMultipart()
+            msg['From'] = CONFIG['email_from']
+            msg['To'] = CONFIG['email_to']
+            msg['Subject'] = f"Gold Alert - {datetime.now().strftime('%H:%M')}"
+            
+            msg.attach(MIMEText(message, 'plain'))
+            
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+                server.login(CONFIG['email_from'], CONFIG['email_password'])
+                server.send_message(msg)
+                
+        except Exception as e:
+            print(f"Email alert failed: {e}")
+    
+    @staticmethod
+    def _webhook_alert(message: str):
+        """Send webhook alert"""
+        try:
+            payload = {
+                'timestamp': datetime.now().isoformat(),
+                'message': message,
+                'symbol': CONFIG['symbol']
+            }
+            requests.post(CONFIG['webhook_url'], json=payload, timeout=5)
+        except Exception as e:
+            print(f"Webhook alert failed: {e}")
+
+# =============================================================================
+# TRADING LOGIC - ALL OUR LEARNED PATTERNS
+# =============================================================================
+
+class TradingAgent:
+    """Main trading logic and pattern detection"""
+    
+    def __init__(self):
+        self.data_feed = DataFeed()
+        self.alert_system = AlertSystem()
+        self.last_alert_time = {}
+        self.alert_cooldown = 300  # 5 minutes between same alerts
+        
+    def analyze_market(self):
+        """Main analysis function - runs every interval"""
+        
+        # Get current data
+        current_price_data = self.data_feed.get_current_price()
+        recent_bars = self.data_feed.get_recent_bars(count=20)
+        
+        if not current_price_data or recent_bars is None:
+            return
+        
+        current_price = current_price_data['price']
+        
+        # Check trading hours
+        if not self._is_trading_hours():
+            return
+        
+        # Run all checks
+        self._check_round_numbers(current_price, recent_bars)
+        self._check_support_resistance(current_price, recent_bars)
+        self._check_volume_spikes(recent_bars)
+        self._check_rejection_patterns(recent_bars)
+        self._check_breakout_patterns(recent_bars)
+        
+    def _check_round_numbers(self, current_price: float, bars: pd.DataFrame):
+        """Alert when approaching round numbers"""
+        
+        for round_num in CONFIG['round_numbers']:
+            distance = abs(current_price - round_num)
+            
+            # Alert if within $5 of round number
+            if distance <= 5:
+                last_bar = bars.iloc[-1]
+                
+                # Check for rejection at round number
+                if abs(last_bar['high'] - round_num) <= 2:
+                    wick_size = last_bar['high'] - last_bar['close']
+                    if wick_size >= CONFIG['wick_size_threshold']:
+                        message = (
+                            f"🎯 ROUND NUMBER REJECTION\n"
+                            f"Level: ${round_num}\n"
+                            f"Current: ${current_price:.2f}\n"
+                            f"Wick Size: ${wick_size:.2f}\n"
+                            f"Setup: SHORT for 10-point scalp\n"
+                            f"Entry: ${round_num - 2:.2f}\n"
+                            f"Target: ${round_num - 10:.2f}\n"
+                            f"Stop: ${round_num + 5:.2f}"
+                        )
+                        self._send_alert_with_cooldown(
+                            f"ROUND_NUM_{round_num}", message, priority=5
+                        )
+                
+                # Check for breakout above round number
+                elif last_bar['close'] > round_num and last_bar['open'] < round_num:
+                    if last_bar['volume'] > bars['volume'].mean() * 2:
+                        message = (
+                            f"🚀 ROUND NUMBER BREAKOUT\n"
+                            f"Level: ${round_num}\n"
+                            f"Current: ${current_price:.2f}\n"
+                            f"Volume: {last_bar['volume']:.0f} (SPIKE)\n"
+                            f"Setup: LONG continuation\n"
+                            f"Entry: ${current_price:.2f}\n"
+                            f"Target: ${round_num + 20:.2f}\n"
+                            f"Stop: ${round_num - 5:.2f}"
+                        )
+                        self._send_alert_with_cooldown(
+                            f"BREAKOUT_{round_num}", message, priority=4
+                        )
+    
+    def _check_support_resistance(self, current_price: float, bars: pd.DataFrame):
+        """Check if price is at key support/resistance zones"""
+        
+        # Check resistance zones
+        for zone in CONFIG['resistance_zones']:
+            if zone['low'] <= current_price <= zone['high']:
+                last_bar = bars.iloc[-1]
+                
+                # Rejection pattern
+                if last_bar['high'] >= zone['high'] and last_bar['close'] < zone['high'] - 3:
+                    message = (
+                        f"🔴 RESISTANCE REJECTION - {zone['name']}\n"
+                        f"Zone: ${zone['low']:.2f} - ${zone['high']:.2f}\n"
+                        f"Current: ${current_price:.2f}\n"
+                        f"Priority: {'⭐' * zone['priority']}\n"
+                        f"Setup: SHORT\n"
+                        f"Entry: ${current_price:.2f}\n"
+                        f"Stop: ${zone['high'] + 5:.2f}\n"
+                        f"Target: Next support"
+                    )
+                    self._send_alert_with_cooldown(
+                        f"RESIST_{zone['name']}", message, priority=zone['priority']
+                    )
+        
+        # Check support zones
+        for zone in CONFIG['support_zones']:
+            if zone['low'] <= current_price <= zone['high']:
+                last_bar = bars.iloc[-1]
+                
+                # Bounce pattern
+                if last_bar['low'] <= zone['low'] + 3 and last_bar['close'] > last_bar['open']:
+                    message = (
+                        f"🟢 SUPPORT BOUNCE - {zone['name']}\n"
+                        f"Zone: ${zone['low']:.2f} - ${zone['high']:.2f}\n"
+                        f"Current: ${current_price:.2f}\n"
+                        f"Priority: {'⭐' * zone['priority']}\n"
+                        f"Setup: LONG\n"
+                        f"Entry: ${current_price:.2f}\n"
+                        f"Stop: ${zone['low'] - 5:.2f}\n"
+                        f"Target: Next resistance"
+                    )
+                    self._send_alert_with_cooldown(
+                        f"SUPPORT_{zone['name']}", message, priority=zone['priority']
+                    )
+    
+    def _check_volume_spikes(self, bars: pd.DataFrame):
+        """Detect unusual volume activity"""
+        
+        avg_volume = bars['volume'].mean()
+        last_bar = bars.iloc[-1]
+        
+        if last_bar['volume'] > avg_volume * CONFIG['volume_spike_multiplier']:
+            message = (
+                f"📊 VOLUME SPIKE DETECTED\n"
+                f"Current Volume: {last_bar['volume']:.0f}\n"
+                f"Average Volume: {avg_volume:.0f}\n"
+                f"Multiplier: {last_bar['volume'] / avg_volume:.1f}x\n"
+                f"Price: ${last_bar['close']:.2f}\n"
+                f"Action: Institutional activity - watch for move"
+            )
+            self._send_alert_with_cooldown("VOLUME_SPIKE", message, priority=3)
+    
+    def _check_rejection_patterns(self, bars: pd.DataFrame):
+        """Detect rejection wicks at key levels"""
+        
+        last_bar = bars.iloc[-1]
+        
+        # Upper wick rejection (bearish)
+        upper_wick = last_bar['high'] - max(last_bar['open'], last_bar['close'])
+        if upper_wick >= CONFIG['wick_size_threshold']:
+            message = (
+                f"📉 REJECTION WICK (Bearish)\n"
+                f"Wick Size: ${upper_wick:.2f}\n"
+                f"High: ${last_bar['high']:.2f}\n"
+                f"Close: ${last_bar['close']:.2f}\n"
+                f"Setup: Potential SHORT if next candle confirms"
+            )
+            self._send_alert_with_cooldown("REJECT_BEAR", message, priority=3)
+        
+        # Lower wick rejection (bullish)
+        lower_wick = min(last_bar['open'], last_bar['close']) - last_bar['low']
+        if lower_wick >= CONFIG['wick_size_threshold']:
+            message = (
+                f"📈 REJECTION WICK (Bullish)\n"
+                f"Wick Size: ${lower_wick:.2f}\n"
+                f"Low: ${last_bar['low']:.2f}\n"
+                f"Close: ${last_bar['close']:.2f}\n"
+                f"Setup: Potential LONG if next candle confirms"
+            )
+            self._send_alert_with_cooldown("REJECT_BULL", message, priority=3)
+    
+    def _check_breakout_patterns(self, bars: pd.DataFrame):
+        """Detect breakout patterns"""
+        
+        recent = bars.tail(10)
+        last_bar = bars.iloc[-1]
+        
+        # Recent range high/low
+        range_high = recent['high'].max()
+        range_low = recent['low'].min()
+        
+        # Breakout above range
+        if last_bar['close'] > range_high and last_bar['volume'] > bars['volume'].mean() * 1.5:
+            message = (
+                f"🚀 BREAKOUT - Upside\n"
+                f"Broke Above: ${range_high:.2f}\n"
+                f"Current: ${last_bar['close']:.2f}\n"
+                f"Volume: ELEVATED\n"
+                f"Setup: LONG continuation\n"
+                f"Stop: ${range_high - 5:.2f}"
+            )
+            self._send_alert_with_cooldown("BREAKOUT_UP", message, priority=4)
+        
+        # Breakdown below range
+        if last_bar['close'] < range_low and last_bar['volume'] > bars['volume'].mean() * 1.5:
+            message = (
+                f"📉 BREAKDOWN - Downside\n"
+                f"Broke Below: ${range_low:.2f}\n"
+                f"Current: ${last_bar['close']:.2f}\n"
+                f"Volume: ELEVATED\n"
+                f"Setup: SHORT continuation\n"
+                f"Stop: ${range_low + 5:.2f}"
+            )
+            self._send_alert_with_cooldown("BREAKDOWN", message, priority=4)
+    
+    def _is_trading_hours(self) -> bool:
+        """Check if within trading hours"""
+        now = datetime.now()
+        current_hour = now.hour
+        
+        # Gold trades nearly 24/5 but best during specific sessions
+        # Skip weekends (Saturday = 5, Sunday = 6 before 6 PM)
+        if now.weekday() == 5:  # Saturday
+            return False
+        if now.weekday() == 6 and current_hour < 18:  # Sunday before 6 PM
+            return False
+        
+        return True
+    
+    def _is_best_time(self) -> bool:
+        """Check if in optimal trading window"""
+        current_hour = datetime.now().hour
+        
+        for time_window in CONFIG['best_times']:
+            if time_window['start'] <= current_hour < time_window['end']:
+                return True
+        return False
+    
+    def _send_alert_with_cooldown(self, alert_id: str, message: str, priority: int):
+        """Send alert with cooldown to avoid spam"""
+        
+        current_time = time.time()
+        last_time = self.last_alert_time.get(alert_id, 0)
+        
+        if current_time - last_time >= self.alert_cooldown:
+            self.alert_system.send_alert(message, priority)
+            self.last_alert_time[alert_id] = current_time
+
+# =============================================================================
+# MAIN LOOP
+# =============================================================================
+
+def main():
+    """Main execution loop"""
+    
+    print("="*80)
+    print("GOLD FUTURES REAL-TIME ALERT AGENT")
+    print("="*80)
+    print(f"Symbol: {CONFIG['symbol']}")
+    print(f"Timeframe: {CONFIG['timeframe']}")
+    print(f"Check Interval: {CONFIG['check_interval']} seconds")
+    print(f"Alerts Enabled: {[k for k, v in CONFIG['alerts'].items() if v]}")
+    print("="*80)
+    print("Agent is running... Press Ctrl+C to stop\n")
+    
+    agent = TradingAgent()
+    
+    try:
+        while True:
+            try:
+                # Run analysis
+                agent.analyze_market()
+                
+                # Wait for next interval
+                time.sleep(CONFIG['check_interval'])
+                
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                print(f"Error in main loop: {e}")
+                time.sleep(60)  # Wait 1 minute before retry
+                
+    except KeyboardInterrupt:
+        print("\n\nAgent stopped by user")
+        print("="*80)
+
+if __name__ == "__main__":
+    main()
