@@ -1,0 +1,536 @@
+# 🤖 GOLD FUTURES ALERT AGENT - SETUP GUIDE
+
+## What This Agent Does
+
+**Monitors gold futures 24/5 and alerts you when:**
+- Price approaches round numbers ($4,250, $4,200, etc.)
+- Hits your pre-defined support/resistance zones
+- Shows rejection patterns (big wicks)
+- Volume spikes (institutional activity)
+- Breakouts/breakdowns occur
+- Perfect entry setups form
+
+**Gives you instant alerts like:**
+> 🎯 ROUND NUMBER REJECTION  
+> Level: $4,250  
+> Setup: SHORT for 10-point scalp  
+> Entry: $4,248, Stop: $4,255, Target: $4,240
+
+---
+
+## 🚀 QUICK START (3 Steps)
+
+### Step 1: Install Python Dependencies
+
+```bash
+pip install pandas numpy requests
+```
+
+Optional (for enhanced features):
+```bash
+pip install win10toast  # Windows desktop notifications
+pip install python-telegram-bot  # Telegram alerts
+```
+
+### Step 2: Get Real-Time Data Feed
+
+**Option A: Free (Testing)**
+- Agent includes mock data for testing
+- Run as-is to see how it works
+
+**Option B: Real Data (Trading)**
+
+Choose one data provider:
+
+1. **Polygon.io** (Recommended)
+   - Sign up: https://polygon.io
+   - Free tier: 5 API calls/minute
+   - Paid: $29-99/month for real-time
+
+2. **Alpha Vantage**
+   - Sign up: https://www.alphavantage.co
+   - Free tier available
+   - Good for testing
+
+3. **Interactive Brokers API**
+   - If you have IB account
+   - Completely free
+   - Most reliable
+
+4. **Your Broker's API**
+   - TD Ameritrade, E*TRADE, etc.
+   - Usually free with account
+
+### Step 3: Configure and Run
+
+1. Edit `gold_alert_agent.py`:
+   ```python
+   CONFIG = {
+       # Update these with your zones
+       'resistance_zones': [
+           {'name': 'R1', 'low': 4245, 'high': 4250, 'priority': 5},
+       ],
+       'support_zones': [
+           {'name': 'S1', 'low': 4200, 'high': 4210, 'priority': 5},
+       ],
+       
+       # Enable your preferred alert method
+       'alerts': {
+           'console': True,
+           'desktop': True,
+           'telegram': False,  # Set to True if you want
+       },
+   }
+   ```
+
+2. Run the agent:
+   ```bash
+   python gold_alert_agent.py
+   ```
+
+3. Keep it running 24/5 during market hours
+
+---
+
+## 📊 CONNECTING REAL DATA
+
+### Option 1: Polygon.io (Easiest for beginners)
+
+```python
+class DataFeed:
+    def __init__(self):
+        self.api_key = "YOUR_POLYGON_API_KEY"
+        self.base_url = "https://api.polygon.io/v2"
+    
+    def get_current_price(self):
+        url = f"{self.base_url}/aggs/ticker/GC/prev"
+        params = {'apiKey': self.api_key}
+        response = requests.get(url, params=params)
+        data = response.json()
+        
+        return {
+            'price': data['results'][0]['c'],
+            'high': data['results'][0]['h'],
+            'low': data['results'][0]['l'],
+            'volume': data['results'][0]['v'],
+            'timestamp': datetime.now()
+        }
+```
+
+### Option 2: Interactive Brokers
+
+```python
+from ib_insync import IB, Future
+
+class DataFeed:
+    def __init__(self):
+        self.ib = IB()
+        self.ib.connect('127.0.0.1', 7497, clientId=1)
+        self.contract = Future('GC', '202504', 'COMEX')
+        
+    def get_current_price(self):
+        ticker = self.ib.reqMktData(self.contract)
+        self.ib.sleep(1)
+        
+        return {
+            'price': ticker.last,
+            'bid': ticker.bid,
+            'ask': ticker.ask,
+            'high': ticker.high,
+            'low': ticker.low,
+            'volume': ticker.volume,
+            'timestamp': datetime.now()
+        }
+```
+
+### Option 3: TradingView Webhook
+
+1. Create TradingView alert with webhook
+2. Point to your local server
+3. Agent receives price updates via POST
+
+```python
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.json
+    # Process TradingView alert
+    return "OK"
+
+if __name__ == '__main__':
+    app.run(port=5000)
+```
+
+---
+
+## 📱 SETTING UP ALERTS
+
+### Desktop Notifications (Easiest)
+
+Already enabled by default. Works on Mac/Linux/Windows.
+
+**macOS:** No setup needed  
+**Linux:** Install `libnotify`: `sudo apt install libnotify-bin`  
+**Windows:** Install `pip install win10toast`
+
+### Telegram Bot (Recommended)
+
+**Why:** Get alerts on your phone instantly
+
+**Setup (5 minutes):**
+
+1. Open Telegram, search for `@BotFather`
+2. Send `/newbot` and follow prompts
+3. Copy your bot token (looks like `123456:ABC-DEF...`)
+4. Get your chat ID:
+   - Search for `@userinfobot` on Telegram
+   - Send `/start`
+   - Copy your ID (looks like `123456789`)
+
+5. Update config:
+   ```python
+   'alerts': {
+       'telegram': True,
+   },
+   'telegram_bot_token': '123456:ABC-DEF...',
+   'telegram_chat_id': '123456789',
+   ```
+
+Done! You'll now get mobile alerts.
+
+### Email Alerts
+
+**Setup:**
+
+1. Use Gmail (easiest)
+2. Enable 2-factor authentication
+3. Generate app password: https://myaccount.google.com/apppasswords
+4. Update config:
+   ```python
+   'alerts': {
+       'email': True,
+   },
+   'email_from': 'your_email@gmail.com',
+   'email_to': 'your_email@gmail.com',
+   'email_password': 'your_app_password',
+   ```
+
+### Custom Webhook
+
+Send alerts to Discord, Slack, or your own server:
+
+```python
+'alerts': {
+    'webhook': True,
+},
+'webhook_url': 'https://discord.com/api/webhooks/...',
+```
+
+---
+
+## 🖥️ RUNNING 24/7
+
+### Option 1: Your Computer (Free)
+
+**Pros:** Free, easy  
+**Cons:** Computer must stay on
+
+**Setup:**
+1. Keep script running in terminal
+2. On Mac/Linux: Use `screen` or `tmux`
+   ```bash
+   screen -S gold_agent
+   python gold_alert_agent.py
+   # Press Ctrl+A then D to detach
+   ```
+
+### Option 2: Raspberry Pi ($35)
+
+**Pros:** Cheap, low power, always on  
+**Cons:** Need to buy hardware
+
+**Setup:**
+1. Buy Raspberry Pi 4 ($35)
+2. Install Python
+3. Run agent on boot
+4. Plug in and forget
+
+### Option 3: Cloud Server ($5/month)
+
+**Pros:** Professional, reliable  
+**Cons:** Monthly cost
+
+**Options:**
+- DigitalOcean: $5/month
+- AWS EC2: Free tier available
+- Google Cloud: Free tier
+- Linode: $5/month
+
+**Setup:**
+```bash
+ssh user@your-server
+git clone your-repo
+python gold_alert_agent.py &
+```
+
+### Option 4: PythonAnywhere (Free)
+
+**Pros:** Completely free  
+**Cons:** Limited to 100 seconds CPU/day
+
+**Setup:**
+1. Sign up: https://www.pythonanywhere.com
+2. Upload script
+3. Schedule to run every 5 minutes
+
+---
+
+## 🎯 UPDATING ZONES DAILY
+
+**Every morning before market:**
+
+1. Check yesterday's high/low (PDH, PDL)
+2. Check key levels from your analysis
+3. Update config:
+
+```python
+CONFIG = {
+    'resistance_zones': [
+        {'name': 'Today High', 'low': 4245, 'high': 4250, 'priority': 5},
+        {'name': 'Round 4250', 'low': 4248, 'high': 4252, 'priority': 4},
+    ],
+    'support_zones': [
+        {'name': 'Today Low', 'low': 4200, 'high': 4210, 'priority': 5},
+        {'name': 'Round 4200', 'low': 4198, 'high': 4202, 'priority': 5},
+        {'name': 'Golden Zone', 'low': 4100, 'high': 4125, 'priority': 5},
+    ],
+    'round_numbers': [4300, 4250, 4200, 4150, 4100, 4050, 4000],
+}
+```
+
+4. Restart agent:
+   ```bash
+   # Kill old process
+   pkill -f gold_alert_agent.py
+   
+   # Start new one
+   python gold_alert_agent.py &
+   ```
+
+---
+
+## 🔧 CUSTOMIZATION
+
+### Change Alert Sensitivity
+
+**Less alerts (only best setups):**
+```python
+'volume_spike_multiplier': 3.0,  # Only huge volume
+'wick_size_threshold': 15,  # Only big wicks
+'rejection_threshold': 10,  # Strong rejections only
+```
+
+**More alerts (catch everything):**
+```python
+'volume_spike_multiplier': 1.5,
+'wick_size_threshold': 5,
+'rejection_threshold': 3,
+```
+
+### Add Your Own Patterns
+
+```python
+def _check_your_custom_pattern(self, bars: pd.DataFrame):
+    """Your custom logic here"""
+    
+    last_bar = bars.iloc[-1]
+    
+    # Example: Alert on doji at support
+    body_size = abs(last_bar['close'] - last_bar['open'])
+    total_size = last_bar['high'] - last_bar['low']
+    
+    if body_size / total_size < 0.1:  # Small body = doji
+        if self._is_at_support(last_bar['close']):
+            message = "🎯 DOJI AT SUPPORT - Potential reversal"
+            self._send_alert_with_cooldown("DOJI_SUPPORT", message, 4)
+```
+
+### Add More Indicators
+
+```python
+def _calculate_rsi(self, bars: pd.DataFrame, period: int = 14):
+    """Calculate RSI"""
+    delta = bars['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi.iloc[-1]
+```
+
+---
+
+## 📊 EXAMPLE ALERTS YOU'LL RECEIVE
+
+```
+🎯 ROUND NUMBER REJECTION
+Level: $4,250
+Current: $4,247.50
+Wick Size: $12.00
+Setup: SHORT for 10-point scalp
+Entry: $4,248
+Target: $4,240
+Stop: $4,255
+```
+
+```
+🟢 SUPPORT BOUNCE - S2
+Zone: $4,200 - $4,210
+Current: $4,205.00
+Priority: ⭐⭐⭐⭐⭐
+Setup: LONG
+Entry: $4,205
+Stop: $4,195
+Target: $4,245
+```
+
+```
+📊 VOLUME SPIKE DETECTED
+Current Volume: 3,500
+Average Volume: 1,200
+Multiplier: 2.9x
+Price: $4,235.00
+Action: Institutional activity - watch for move
+```
+
+---
+
+## 🐛 TROUBLESHOOTING
+
+### "No data received"
+- Check API key is correct
+- Check internet connection
+- Verify market is open
+- Check API rate limits
+
+### "Alerts not working"
+- Check alert method is enabled in config
+- Verify credentials (Telegram token, email password)
+- Check system notifications are allowed
+- Test with console alerts first
+
+### "Too many alerts"
+- Increase `alert_cooldown` (default 300 seconds)
+- Raise thresholds (volume_spike_multiplier, etc.)
+- Reduce number of zones being monitored
+
+### "Agent crashes"
+- Check error message in console
+- Verify data feed is responding
+- Add error handling around API calls
+- Use try/except blocks
+
+---
+
+## 💡 TIPS FOR SUCCESS
+
+1. **Start Simple**
+   - Begin with console alerts only
+   - Add 2-3 key zones
+   - Test for a day
+
+2. **Gradually Add**
+   - Once comfortable, add more zones
+   - Enable Telegram/email
+   - Add custom patterns
+
+3. **Daily Maintenance**
+   - Update zones each morning
+   - Review what alerts worked
+   - Adjust thresholds
+
+4. **Don't Over-Alert**
+   - Too many alerts = analysis paralysis
+   - Focus on 3-5 best zones
+   - Use high priority only for best setups
+
+5. **Backtest Your Logic**
+   - Save historical alerts
+   - Review which ones were profitable
+   - Refine your patterns
+
+---
+
+## 🚀 NEXT LEVEL: AUTO-TRADING
+
+Once you're comfortable with alerts, you can extend this to:
+
+1. **Paper Trading**
+   - Agent automatically places paper trades
+   - Track hypothetical P&L
+   - Validate logic before live
+
+2. **Auto-Execution**
+   - Connect to broker API
+   - Agent places real trades
+   - Full automation (USE WITH CAUTION)
+
+3. **Position Management**
+   - Auto-move stops to breakeven
+   - Scale out at targets
+   - Trail stops on winners
+
+---
+
+## 📚 RESOURCES
+
+**Data Providers:**
+- Polygon.io: https://polygon.io
+- Alpha Vantage: https://www.alphavantage.co
+- IB API: https://interactivebrokers.github.io
+
+**Hosting:**
+- DigitalOcean: https://www.digitalocean.com
+- PythonAnywhere: https://www.pythonanywhere.com
+- AWS Free Tier: https://aws.amazon.com/free
+
+**Telegram Bot Setup:**
+- BotFather: https://t.me/botfather
+- Get Chat ID: https://t.me/userinfobot
+
+**Python Libraries:**
+- Pandas: https://pandas.pydata.org
+- Requests: https://docs.python-requests.org
+
+---
+
+## 🎯 FINAL NOTES
+
+**This agent learns from:**
+- All our zone analysis (daily + hourly)
+- Round number patterns
+- Volume behavior
+- Rejection wicks
+- Breakout patterns
+- Your personal trading style
+
+**It watches the market 24/5 so you don't have to.**
+
+When a setup appears, you get instant alert with:
+- ✅ Exact entry price
+- ✅ Stop loss
+- ✅ Targets
+- ✅ Risk/reward
+
+**You just execute. No analysis paralysis.**
+
+---
+
+**Questions? Issues? Need Help?**
+
+Let me know and I'll customize the agent for your specific needs.
+
+**Now go build your trading robot!** 🤖📈
